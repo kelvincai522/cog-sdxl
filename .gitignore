@@ -4,6 +4,7 @@ loras/
 vaes/
 textual_inversions/
 tmp/
+cog_Linux_x86_64
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

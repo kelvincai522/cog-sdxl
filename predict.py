@@ -41,12 +41,12 @@ class Predictor(BasePredictor):
         prompt: str = Input(description="The prompt", default=DEFAULT_POSITIVE_PROMPT),
         image: Path = Input(description="The image for image to image or as the base for inpainting (Will be scaled then cropped to the set width and height)", default=None),
         mask: Path = Input(description="The mask for inpainting, white areas will be modified and black preserved (Will be scaled then cropped to the set width and height)", default=None),
-        loras: str = Input(
-            description="The LoRAs to use, must be either a string with format \"URL:Strength,URL:Strength,...\" (Strength is optional, default to 1), "
-                        "or a JSON list dumped as a string containing key \"url\" (Required), \"strength\" (Optional, default to 1), and \"civitai_token\" (Optional, for downloading from CivitAI) "
-                        "(NOTICE: Will download the weights, might take a while if the LoRAs are huge or the download is slow, WILL CHARGE WHEN DOWNLOADING)",
-            default=DEFAULT_LORA,
-        ),
+        # loras: str = Input(
+        #     description="The LoRAs to use, must be either a string with format \"URL:Strength,URL:Strength,...\" (Strength is optional, default to 1), "
+        #                 "or a JSON list dumped as a string containing key \"url\" (Required), \"strength\" (Optional, default to 1), and \"civitai_token\" (Optional, for downloading from CivitAI) "
+        #                 "(NOTICE: Will download the weights, might take a while if the LoRAs are huge or the download is slow, WILL CHARGE WHEN DOWNLOADING)",
+        #     default=DEFAULT_LORA,
+        # ),
         negative_prompt: str = Input(description="The negative prompt (For things you don't want)", default=DEFAULT_NEGATIVE_PROMPT),
         cfg_scale: float = Input(description="CFG scale defines how much attention the model pays to the prompt when generating, set to 1 to disable", default=DEFAULT_CFG, ge=1, le=50),
         guidance_rescale: float = Input(description="The amount to rescale CFG generated noise to avoid generating overexposed images, set to 0 or 1 to disable", default=DEFAULT_RESCALE, ge=0, le=5),
@@ -73,7 +73,7 @@ class Predictor(BasePredictor):
         }
         pipeline = self.pipelines.get_pipeline(model, None if vae == BAKEDIN_VAE_LABEL else vae, scheduler)
         try:
-            self.loras.process(loras, pipeline)
+            # self.loras.process(loras, pipeline)
             if image:
                 gen_kwargs["image"] = utils.scale_and_crop(image, width, height)
                 gen_kwargs["strength"] = strength
@@ -161,10 +161,10 @@ class SDXLMultiPipelineHandler:
 
     # Load a VAE to GPU(CUDA).
     def _load_vae(self, vae_name):
-        # vae = AutoencoderKL.from_pretrained(os.path.join(self.vaes_dir_path, vae_name), torch_dtype=self.torch_dtype)
-        vae = AutoencoderTiny.from_pretrained(os.path.join(self.vaes_dir_path, vae_name), torch_dtype=self.torch_dtype)
-        # vae.enable_slicing()
-        # vae.enable_tiling()
+        if "tae" in vae_name:
+            vae = AutoencoderTiny.from_pretrained(os.path.join(self.vaes_dir_path, vae_name), torch_dtype=self.torch_dtype)
+        else:
+            vae = AutoencoderKL.from_pretrained(os.path.join(self.vaes_dir_path, vae_name), torch_dtype=self.torch_dtype)
         vae.to("cuda")
         return vae
 
@@ -175,22 +175,27 @@ class SDXLMultiPipelineHandler:
             pipeline = self._load_model(model_name, model_for_loading, clip_l_list, clip_g_list, activation_token_list)
             if not self.cpu_offload_inactive_models:
                 pipeline.to("cuda")
+
+            pipeline.unet.to(memory_format=torch.channels_last)
+            pipeline.unet = utils.quantize_unet(pipeline.unet)
+            config = CompilationConfig.Default()
+            config.enable_xformers = True
+            config.enable_triton = True
+            config.enable_cuda_graph = True
+            pipeline = compile(pipeline, config=config)
+            pipeline.vae = None
             self.model_pipeline_dict[model_name] = pipeline
 
     # Load a model to CPU.
     def _load_model(self, model_name, model_for_loading, clip_l_list, clip_g_list, activation_token_list):
         pipeline = AutoPipelineForText2Image.from_pipe(model_for_loading.load(torch_dtype=self.torch_dtype, add_watermarker=False, custom_pipeline="lpw_stable_diffusion_xl"), enable_pag=True)
         utils.apply_textual_inversions_to_sdxl_pipeline(pipeline, clip_l_list, clip_g_list, activation_token_list)
-        config = CompilationConfig.Default()
-        config.enable_xformers = True
-        config.enable_triton = True
-        config.enable_cuda_graph = True
-        pipeline = compile(pipeline, config=config)
+        from huggingface_hub import hf_hub_download
+        pipeline.load_lora_weights(hf_hub_download("ByteDance/SDXL-Lightning", "sdxl_lightning_8step_lora.safetensors"))
+        pipeline.fuse_lora()
+        pipeline.unload_lora_weights()
         vae = pipeline.vae
-        pipeline.vae = None
-        # vae.enable_slicing()
-        # vae.enable_tiling()
+        # pipeline.vae = None
         vae.to("cuda")
-        # pipeline.unet = torch.compile(pipeline.unet, mode='reduce-overhead', fullgraph=True)
         self.vae_obj_dict[model_name] = vae
         return pipeline

@@ -120,3 +120,12 @@ def conv_filter_fn(mod, *args):
     return (
         isinstance(mod, torch.nn.Conv2d) and mod.kernel_size == (1, 1) and 128 in [mod.in_channels, mod.out_channels]
     )
+
+
+def quantize_unet(m):
+    from diffusers.utils import USE_PEFT_BACKEND
+    assert USE_PEFT_BACKEND
+    m = torch.quantization.quantize_dynamic(m, {torch.nn.Linear},
+                                            dtype=torch.qint8,
+                                            inplace=True)
+    return m
