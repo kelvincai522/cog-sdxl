@@ -10,9 +10,16 @@ import utils # utils.py
 import os
 import random
 import torch
-from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image, AutoPipelineForInpainting, AutoencoderKL
+from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image, AutoPipelineForInpainting, AutoencoderKL, AutoencoderTiny
 from schedulers import SDXLCompatibleSchedulers # schedulers.py
 from loras import SDXLMultiLoRAHandler # loras.py
+
+from sfast.compilers.diffusion_pipeline_compiler import (compile, CompilationConfig)
+
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.allow_tf32 = False
+torch.backends.cuda.matmul.allow_tf32 = False
 
 # Cog will only run this class in a single thread.
 class Predictor(BasePredictor):
@@ -92,15 +99,17 @@ class Predictor(BasePredictor):
                 print("Using text to image mode.")
             if seed == -1:
                 seed = random.randint(0, 2147483647)
+
             gen_kwargs["generator"] = torch.Generator(device="cuda").manual_seed(seed)
             print("Using seed:", seed)
-            imgs = pipeline(**gen_kwargs).images
 
             image_paths = []
+            imgs = pipeline(**gen_kwargs).images
             for index, img in enumerate(imgs):
                 img_file_path = f"tmp/{index}.png"
                 img.save(img_file_path, optimize=True, compress_level=9)
                 image_paths.append(Path(img_file_path))
+
             return image_paths
         finally:
             pipeline.unload_lora_weights()
@@ -152,9 +161,10 @@ class SDXLMultiPipelineHandler:
 
     # Load a VAE to GPU(CUDA).
     def _load_vae(self, vae_name):
-        vae = AutoencoderKL.from_pretrained(os.path.join(self.vaes_dir_path, vae_name), torch_dtype=self.torch_dtype)
-        vae.enable_slicing()
-        vae.enable_tiling()
+        # vae = AutoencoderKL.from_pretrained(os.path.join(self.vaes_dir_path, vae_name), torch_dtype=self.torch_dtype)
+        vae = AutoencoderTiny.from_pretrained(os.path.join(self.vaes_dir_path, vae_name), torch_dtype=self.torch_dtype)
+        # vae.enable_slicing()
+        # vae.enable_tiling()
         vae.to("cuda")
         return vae
 
@@ -169,12 +179,18 @@ class SDXLMultiPipelineHandler:
 
     # Load a model to CPU.
     def _load_model(self, model_name, model_for_loading, clip_l_list, clip_g_list, activation_token_list):
-        pipeline = AutoPipelineForText2Image.from_pipe(model_for_loading.load(torch_dtype=self.torch_dtype, add_watermarker=False), enable_pag=True)
+        pipeline = AutoPipelineForText2Image.from_pipe(model_for_loading.load(torch_dtype=self.torch_dtype, add_watermarker=False, custom_pipeline="lpw_stable_diffusion_xl"), enable_pag=True)
         utils.apply_textual_inversions_to_sdxl_pipeline(pipeline, clip_l_list, clip_g_list, activation_token_list)
+        config = CompilationConfig.Default()
+        config.enable_xformers = True
+        config.enable_triton = True
+        config.enable_cuda_graph = True
+        pipeline = compile(pipeline, config=config)
         vae = pipeline.vae
         pipeline.vae = None
-        vae.enable_slicing()
-        vae.enable_tiling()
+        # vae.enable_slicing()
+        # vae.enable_tiling()
         vae.to("cuda")
+        # pipeline.unet = torch.compile(pipeline.unet, mode='reduce-overhead', fullgraph=True)
         self.vae_obj_dict[model_name] = vae
         return pipeline

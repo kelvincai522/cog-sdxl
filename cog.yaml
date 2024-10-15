@@ -2,7 +2,7 @@
 # Reference: https://github.com/replicate/cog/blob/main/docs/yaml.md
 
 build:
-  cuda: "12.4"
+  cuda: "12.1"
   # set to true if your model requires a GPU
   gpu: true
 
@@ -10,18 +10,20 @@ build:
   # system_packages:
 
   # python version in the form '3.11' or '3.11.4'
-  python_version: "3.12"
+  python_version: "3.11"
 
   # a list of packages in the format <package-name>==<version>
   python_packages:
-    - torch==2.4.1
-    - torchvision==0.19.1
-    - torchaudio==2.4.1
+    - torch==2.4.0
+    - torchvision==0.19.0
+    - torchaudio==2.4.0
 
   # commands run after the environment is setup
   run:
     - "pip3 install -U scipy && pip3 cache purge"
-    - "pip3 install -U huggingface_hub[hf_transfer] omegaconf accelerate transformers diffusers peft torchsde && pip3 cache purge"
+    - "pip3 install -U huggingface_hub[hf_transfer] omegaconf accelerate transformers git+https://git.lury.tech/lurenyang/diffusers.git peft torchsde xformers triton && pip3 cache purge"
+    - "pip3 install ninja && pip3 cache purge"
+    - "TORCH_CUDA_ARCH_LIST=\"8.0 8.6\" pip3 install -v -U stable-fast && pip3 cache purge"
     - "python3 -c 'from huggingface_hub import hf_hub_download as d;d(repo_id=\"stabilityai/stable-diffusion-xl-base-1.0\", filename=\"scheduler_config.json\", subfolder=\"scheduler\")'"
     - "apt-get clean && curl -o /usr/local/bin/pget -L \"https://github.com/replicate/pget/releases/latest/download/pget_$(uname -s)_$(uname -m)\" && chmod +x /usr/local/bin/pget"
 

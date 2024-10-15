@@ -86,3 +86,37 @@ def get_textual_inversions(textual_inversion_paths):
         clip_g_list.append(state_dict['clip_g'])
         activation_token_list.append(filename)
     return (clip_l_list, clip_g_list, activation_token_list)
+
+def dynamic_quant_filter_fn(mod, *args):
+    return (
+        isinstance(mod, torch.nn.Linear)
+        and mod.in_features > 16
+        and (mod.in_features, mod.out_features)
+        not in [
+            (1280, 640),
+            (1920, 1280),
+            (1920, 640),
+            (2048, 1280),
+            (2048, 2560),
+            (2560, 1280),
+            (256, 128),
+            (2816, 1280),
+            (320, 640),
+            (512, 1536),
+            (512, 256),
+            (512, 512),
+            (640, 1280),
+            (640, 1920),
+            (640, 320),
+            (640, 5120),
+            (640, 640),
+            (960, 320),
+            (960, 640),
+        ]
+    )
+
+
+def conv_filter_fn(mod, *args):
+    return (
+        isinstance(mod, torch.nn.Conv2d) and mod.kernel_size == (1, 1) and 128 in [mod.in_channels, mod.out_channels]
+    )
