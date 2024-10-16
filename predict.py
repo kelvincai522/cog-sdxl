@@ -176,7 +176,6 @@ class SDXLMultiPipelineHandler:
             if not self.cpu_offload_inactive_models:
                 pipeline.to("cuda")
 
-            pipeline.unet.to(memory_format=torch.channels_last)
             pipeline.unet = utils.quantize_unet(pipeline.unet)
             config = CompilationConfig.Default()
             config.enable_xformers = True
