@@ -173,16 +173,6 @@ class SDXLMultiPipelineHandler:
         clip_l_list, clip_g_list, activation_token_list = utils.get_textual_inversions(self.textual_inversion_paths)
         for model_name, model_for_loading in self.model_name_obj_dict.items():
             pipeline = self._load_model(model_name, model_for_loading, clip_l_list, clip_g_list, activation_token_list)
-            if not self.cpu_offload_inactive_models:
-                pipeline.to("cuda")
-
-            pipeline.unet = utils.quantize_unet(pipeline.unet)
-            config = CompilationConfig.Default()
-            config.enable_xformers = True
-            config.enable_triton = True
-            config.enable_cuda_graph = True
-            pipeline = compile(pipeline, config=config)
-            pipeline.vae = None
             self.model_pipeline_dict[model_name] = pipeline
 
     # Load a model to CPU.
@@ -193,8 +183,16 @@ class SDXLMultiPipelineHandler:
         pipeline.load_lora_weights(hf_hub_download("ByteDance/SDXL-Lightning", "sdxl_lightning_8step_lora.safetensors"))
         pipeline.fuse_lora()
         pipeline.unload_lora_weights()
+        if not self.cpu_offload_inactive_models:
+            pipeline.to("cuda")
+        pipeline.unet = utils.quantize_unet(pipeline.unet)
+        config = CompilationConfig.Default()
+        config.enable_xformers = True
+        config.enable_triton = True
+        config.enable_cuda_graph = True
+        pipeline = compile(pipeline, config=config)
         vae = pipeline.vae
-        # pipeline.vae = None
+        pipeline.vae = None
         vae.to("cuda")
         self.vae_obj_dict[model_name] = vae
         return pipeline
