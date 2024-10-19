@@ -13,6 +13,7 @@ import torch
 from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image, AutoPipelineForInpainting, AutoencoderKL, AutoencoderTiny
 from schedulers import SDXLCompatibleSchedulers # schedulers.py
 from loras import SDXLMultiLoRAHandler # loras.py
+from compel import Compel, ReturnedEmbeddingsType
 
 from sfast.compilers.diffusion_pipeline_compiler import (compile, CompilationConfig)
 
@@ -67,11 +68,20 @@ class Predictor(BasePredictor):
         if prepend_preprompt:
             prompt = DEFAULT_POS_PREPROMPT + prompt
             negative_prompt = DEFAULT_NEG_PREPROMPT + negative_prompt
-        gen_kwargs = {
-            "prompt": prompt, "negative_prompt": negative_prompt, "guidance_scale": cfg_scale, "guidance_rescale": guidance_rescale,
-            "pag_scale": pag_scale, "clip_skip": clip_skip - 1, "num_inference_steps": steps, "num_images_per_prompt": batch_size,
-        }
         pipeline = self.pipelines.get_pipeline(model, None if vae == BAKEDIN_VAE_LABEL else vae, scheduler)
+        compel = Compel(
+            tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
+            text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True], truncate_long_prompts=False,
+        )
+        conditioning, pooled = compel([prompt, negative_prompt])
+        gen_kwargs = {
+            "prompt_embeds": conditioning[0:1], "pooled_prompt_embeds": pooled[0:1], 
+            "negative_prompt_embeds": conditioning[1:2], "negative_pooled_prompt_embeds": pooled[1:2],
+            "guidance_scale": cfg_scale, "guidance_rescale": guidance_rescale, "pag_scale": pag_scale, 
+            "clip_skip": clip_skip - 1, "num_inference_steps": steps, "num_images_per_prompt": batch_size,
+        }
         try:
             # self.loras.process(loras, pipeline)
             if image:
@@ -177,7 +187,7 @@ class SDXLMultiPipelineHandler:
 
     # Load a model to CPU.
     def _load_model(self, model_name, model_for_loading, clip_l_list, clip_g_list, activation_token_list):
-        pipeline = AutoPipelineForText2Image.from_pipe(model_for_loading.load(torch_dtype=self.torch_dtype, add_watermarker=False, custom_pipeline="lpw_stable_diffusion_xl"), enable_pag=True)
+        pipeline = AutoPipelineForText2Image.from_pipe(model_for_loading.load(torch_dtype=self.torch_dtype, add_watermarker=False), enable_pag=True)
         utils.apply_textual_inversions_to_sdxl_pipeline(pipeline, clip_l_list, clip_g_list, activation_token_list)
         from huggingface_hub import hf_hub_download
         pipeline.load_lora_weights(hf_hub_download("ByteDance/SDXL-Lightning", "sdxl_lightning_8step_lora.safetensors"))
