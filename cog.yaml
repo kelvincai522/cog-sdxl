@@ -21,11 +21,12 @@ build:
   # commands run after the environment is setup
   run:
     - "pip3 install -U scipy && pip3 cache purge"
-    - "pip3 install -U huggingface_hub[hf_transfer] omegaconf accelerate transformers git+https://git.lury.tech/lurenyang/diffusers.git peft torchsde xformers triton compel && pip3 cache purge"
+    - "pip3 install -U huggingface_hub[hf_transfer] omegaconf accelerate transformers git+https://github.com/huggingface/diffusers peft torchsde xformers triton compel && pip3 cache purge"
     - "pip3 install ninja && pip3 cache purge"
     - "TORCH_CUDA_ARCH_LIST=\"8.0 8.6\" pip3 install -v -U stable-fast && pip3 cache purge"
     - "python3 -c 'from huggingface_hub import hf_hub_download as d;d(repo_id=\"stabilityai/stable-diffusion-xl-base-1.0\", filename=\"scheduler_config.json\", subfolder=\"scheduler\")'"
-    - "python3 -c 'from huggingface_hub import hf_hub_download as d;d(\"ByteDance/SDXL-Lightning\", \"sdxl_lightning_8step_lora.safetensors\")'"
+    - "HF_HUB_ENABLE_HF_TRANSFER=1 python3 -c 'from huggingface_hub import hf_hub_download as d;d(\"ByteDance/SDXL-Lightning\", \"sdxl_lightning_8step_lora.safetensors\")'"
+    # - "HF_HUB_ENABLE_HF_TRANSFER=1 huggingface-cli download John6666/prefect-pony-xl-v3-sdxl --local-dir /src/models/prefect_pony_xl_v3"
     - "apt-get clean && curl -o /usr/local/bin/pget -L \"https://github.com/replicate/pget/releases/latest/download/pget_$(uname -s)_$(uname -m)\" && chmod +x /usr/local/bin/pget"
     - "export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc.so.4"
 
